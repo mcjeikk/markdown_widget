@@ -31,6 +31,14 @@ class MarkdownWidget extends StatefulWidget {
   ///config for [MarkdownGenerator]
   final MarkdownGenerator? markdownGenerator;
 
+  /// Inset (in logical pixels) from the top of the viewport that floating
+  /// overlays (app bars, search bars, etc.) occupy.
+  ///
+  /// When set, [AutoScrollController.scrollToIndex] with
+  /// [AutoScrollPosition.begin] will place the target widget below this
+  /// offset instead of at the raw viewport edge.  Defaults to `0.0`.
+  final double topScrollOffset;
+
   const MarkdownWidget({
     Key? key,
     required this.data,
@@ -41,6 +49,7 @@ class MarkdownWidget extends StatefulWidget {
     this.padding,
     this.config,
     this.markdownGenerator,
+    this.topScrollOffset = 0.0,
   }) : super(key: key);
 
   @override
@@ -60,8 +69,11 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
   ///[TocController] combines [TocWidget] and [MarkdownWidget]
   TocController? _tocController;
 
+  /// Mutable top-offset read by [controller]'s viewport boundary closure.
+  double _topScrollOffset = 0.0;
+
   ///[AutoScrollController] provides the scroll to index mechanism
-  final AutoScrollController controller = AutoScrollController();
+  late final AutoScrollController controller;
 
   ///every [VisibilityDetector]'s child which is visible will be kept with [indexTreeSet]
   final indexTreeSet = SplayTreeSet<int>((a, b) => a - b);
@@ -72,6 +84,11 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
   @override
   void initState() {
     super.initState();
+    _topScrollOffset = widget.topScrollOffset;
+    controller = AutoScrollController(
+      viewportBoundaryGetter: () =>
+          Rect.fromLTRB(0, _topScrollOffset, 0, 0),
+    );
     _tocController = widget.tocController;
     _tocController?.jumpToIndexCallback = (index) {
       controller.scrollToIndex(index, preferPosition: AutoScrollPosition.begin);
@@ -158,6 +175,7 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
 
   @override
   void didUpdateWidget(MarkdownWidget oldWidget) {
+    _topScrollOffset = widget.topScrollOffset;
     clearState();
     updateState();
     super.didUpdateWidget(widget);
