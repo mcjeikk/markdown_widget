@@ -54,6 +54,9 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
   ///The markdown string converted by MarkdownGenerator will be retained in the [_widgets]
   final List<Widget> _widgets = [];
 
+  /// The number of rendered widget blocks in the list.
+  int get widgetCount => _widgets.length;
+
   ///[TocController] combines [TocWidget] and [MarkdownWidget]
   TocController? _tocController;
 
