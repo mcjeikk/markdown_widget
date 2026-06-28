@@ -42,11 +42,12 @@ class MarkdownGenerator {
       headingNodeFilter})
       : headingNodeFilter = headingNodeFilter ?? allowAll;
 
-  ///convert [data] to widgets
-  ///[onTocList] can provider [Toc] list
-  List<Widget> buildWidgets(String data,
-      {ValueCallback<List<Toc>>? onTocList, MarkdownConfig? config}) {
-    final mdConfig = config ?? MarkdownConfig.defaultConfig;
+  ///Parse [data] into a markdown AST — the expensive step.
+  ///
+  ///Split out from [buildWidgets] so callers can cache the AST and reuse it
+  ///across re-builds with the same [data] (e.g. search highlighting, font or
+  ///theme changes) instead of re-parsing the whole document every time.
+  List<m.Node> parseNodes(String data) {
     final m.Document document = m.Document(
       extensionSet: extensionSet ?? m.ExtensionSet.gitHubFlavored,
       encodeHtml: false,
@@ -55,7 +56,15 @@ class MarkdownGenerator {
     );
     final regExp = splitRegExp ?? WidgetVisitor.defaultSplitRegExp;
     final List<String> lines = data.split(regExp);
-    final List<m.Node> nodes = document.parseLines(lines);
+    return document.parseLines(lines);
+  }
+
+  ///Build widgets from an already-parsed AST ([nodes]).
+  ///[onTocList] can provide the [Toc] list.
+  List<Widget> buildFromNodes(List<m.Node> nodes,
+      {ValueCallback<List<Toc>>? onTocList, MarkdownConfig? config}) {
+    final mdConfig = config ?? MarkdownConfig.defaultConfig;
+    final regExp = splitRegExp ?? WidgetVisitor.defaultSplitRegExp;
     final List<Toc> tocList = [];
     final visitor = WidgetVisitor(
         config: mdConfig,
@@ -80,6 +89,14 @@ class MarkdownGenerator {
       widgets.add(Padding(padding: linesMargin, child: richText));
     }
     return widgets;
+  }
+
+  ///convert [data] to widgets (parse + build)
+  ///[onTocList] can provider [Toc] list
+  List<Widget> buildWidgets(String data,
+      {ValueCallback<List<Toc>>? onTocList, MarkdownConfig? config}) {
+    return buildFromNodes(parseNodes(data),
+        onTocList: onTocList, config: config);
   }
 
   static bool allowAll(HeadingNode toc) => true;

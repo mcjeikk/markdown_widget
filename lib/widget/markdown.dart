@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:markdown/markdown.dart' as m;
 import 'package:markdown_widget/markdown_widget.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
 import 'package:visibility_detector/visibility_detector.dart';
@@ -63,6 +64,17 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
   ///The markdown string converted by MarkdownGenerator will be retained in the [_widgets]
   final List<Widget> _widgets = [];
 
+  ///Cached parsed AST + the data it came from. Reused across re-builds with the
+  ///same [MarkdownWidget.data] (e.g. search highlighting, font/theme changes)
+  ///so the document is parsed once, not on every rebuild/keystroke.
+  List<m.Node>? _cachedNodes;
+  String? _cachedNodesData;
+
+  ///Per-instance prefix so [VisibilityDetector]/[AutoScrollTag] keys don't
+  ///collide across multiple simultaneously-mounted [MarkdownWidget]s (e.g.
+  ///reader tabs) — [VisibilityDetector] requires globally-unique keys.
+  late final String _keyPrefix = identityHashCode(this).toString();
+
   /// The number of rendered widget blocks in the list.
   int get widgetCount => _widgets.length;
 
@@ -100,8 +112,20 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
   void updateState() {
     indexTreeSet.clear();
     markdownGenerator = widget.markdownGenerator ?? MarkdownGenerator();
-    final result = markdownGenerator.buildWidgets(
-      widget.data,
+    // Reuse the cached AST when the markdown text is unchanged; only re-parse
+    // when [data] actually changes. The visit/build step still runs (so e.g.
+    // search highlighting and theme changes apply), but the expensive parse
+    // is skipped.
+    final List<m.Node> nodes;
+    if (_cachedNodes != null && _cachedNodesData == widget.data) {
+      nodes = _cachedNodes!;
+    } else {
+      nodes = markdownGenerator.parseNodes(widget.data);
+      _cachedNodes = nodes;
+      _cachedNodesData = widget.data;
+    }
+    final result = markdownGenerator.buildFromNodes(
+      nodes,
       onTocList: (tocList) {
         _tocController?.setTocList(tocList);
       },
@@ -139,8 +163,11 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
         shrinkWrap: widget.shrinkWrap,
         physics: widget.physics,
         controller: controller,
-        itemBuilder: (ctx, index) => wrapByAutoScroll(index,
-            wrapByVisibilityDetector(index, _widgets[index]), controller),
+        itemBuilder: (ctx, index) => wrapByAutoScroll(
+            index,
+            wrapByVisibilityDetector(index, _widgets[index]),
+            controller,
+            _keyPrefix),
         itemCount: _widgets.length,
         padding: widget.padding,
       ),
@@ -153,7 +180,7 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
   ///wrap widget by [VisibilityDetector] that can know if [child] is visible
   Widget wrapByVisibilityDetector(int index, Widget child) {
     return VisibilityDetector(
-      key: ValueKey(index.toString()),
+      key: ValueKey('$_keyPrefix-$index'),
       onVisibilityChanged: (VisibilityInfo info) {
         final visibleFraction = info.visibleFraction;
         if (isForward) {
@@ -176,17 +203,28 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
   @override
   void didUpdateWidget(MarkdownWidget oldWidget) {
     _topScrollOffset = widget.topScrollOffset;
-    clearState();
-    updateState();
+    // Only rebuild the widget list when something that affects the output
+    // changed. When [data] is unchanged the rebuild reuses the cached AST
+    // (see [updateState]); when nothing changed at all we skip entirely.
+    if (widget.data != oldWidget.data ||
+        widget.config != oldWidget.config ||
+        widget.markdownGenerator != oldWidget.markdownGenerator) {
+      clearState();
+      updateState();
+    }
     super.didUpdateWidget(widget);
   }
 }
 
 ///wrap widget by [AutoScrollTag] that can use [AutoScrollController] to scrollToIndex
-Widget wrapByAutoScroll(
-    int index, Widget child, AutoScrollController controller) {
+///
+///[keyPrefix] namespaces the widget key per [MarkdownWidget] instance so keys
+///don't collide when several are mounted at once. The [AutoScrollController]
+///scrolls by [index] (not the key), so this is purely an identity fix.
+Widget wrapByAutoScroll(int index, Widget child, AutoScrollController controller,
+    [String keyPrefix = '']) {
   return AutoScrollTag(
-    key: Key(index.toString()),
+    key: ValueKey('$keyPrefix-$index'),
     controller: controller,
     index: index,
     child: child,
