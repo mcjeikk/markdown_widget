@@ -59,9 +59,13 @@ class MarkdownGenerator {
     return document.parseLines(lines);
   }
 
-  ///Build widgets from an already-parsed AST ([nodes]).
-  ///[onTocList] can provide the [Toc] list.
-  List<Widget> buildFromNodes(List<m.Node> nodes,
+  ///Visit an already-parsed AST ([nodes]) and return the per-block [SpanNode]s
+  ///(plus the [Toc] list via [onTocList]).
+  ///
+  ///Split from [buildFromNodes] so callers can build each block's widget
+  ///lazily (only when it scrolls into view) instead of materialising every
+  ///block up front — important for large documents.
+  List<SpanNode> visitNodes(List<m.Node> nodes,
       {ValueCallback<List<Toc>>? onTocList, MarkdownConfig? config}) {
     final mdConfig = config ?? MarkdownConfig.defaultConfig;
     final regExp = splitRegExp ?? WidgetVisitor.defaultSplitRegExp;
@@ -82,13 +86,23 @@ class MarkdownGenerator {
         });
     final spans = visitor.visit(nodes);
     onTocList?.call(tocList);
-    final List<Widget> widgets = [];
-    for (var span in spans) {
-      final textSpan = spanNodeBuilder?.call(span) ?? span.build();
-      final richText = richTextBuilder?.call(textSpan) ?? Text.rich(textSpan);
-      widgets.add(Padding(padding: linesMargin, child: richText));
-    }
-    return widgets;
+    return spans;
+  }
+
+  ///Build a single block widget from one [span]. Used by the lazy item builder.
+  Widget buildSpanWidget(SpanNode span) {
+    final textSpan = spanNodeBuilder?.call(span) ?? span.build();
+    final richText = richTextBuilder?.call(textSpan) ?? Text.rich(textSpan);
+    return Padding(padding: linesMargin, child: richText);
+  }
+
+  ///Build widgets from an already-parsed AST ([nodes]).
+  ///[onTocList] can provide the [Toc] list.
+  List<Widget> buildFromNodes(List<m.Node> nodes,
+      {ValueCallback<List<Toc>>? onTocList, MarkdownConfig? config}) {
+    return visitNodes(nodes, onTocList: onTocList, config: config)
+        .map(buildSpanWidget)
+        .toList();
   }
 
   ///convert [data] to widgets (parse + build)

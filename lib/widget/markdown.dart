@@ -7,6 +7,8 @@ import 'package:markdown_widget/markdown_widget.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
+import 'span_node.dart';
+
 class MarkdownWidget extends StatefulWidget {
   ///the markdown data
   final String data;
@@ -61,8 +63,13 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
   ///use [markdownGenerator] to transform markdown data to [Widget] list
   late MarkdownGenerator markdownGenerator;
 
-  ///The markdown string converted by MarkdownGenerator will be retained in the [_widgets]
-  final List<Widget> _widgets = [];
+  ///The per-block [SpanNode]s produced from the markdown. Each block's widget
+  ///is built lazily (only when it scrolls into view) from these.
+  final List<SpanNode> _spans = [];
+
+  ///Per-index built-widget cache, so a block is built once and reused while it
+  ///stays in the list (cleared whenever the spans are rebuilt).
+  final Map<int, Widget> _widgetCache = {};
 
   ///Cached parsed AST + the data it came from. Reused across re-builds with the
   ///same [MarkdownWidget.data] (e.g. search highlighting, font/theme changes)
@@ -76,7 +83,7 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
   late final String _keyPrefix = identityHashCode(this).toString();
 
   /// The number of rendered widget blocks in the list.
-  int get widgetCount => _widgets.length;
+  int get widgetCount => _spans.length;
 
   ///[TocController] combines [TocWidget] and [MarkdownWidget]
   TocController? _tocController;
@@ -124,20 +131,22 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
       _cachedNodes = nodes;
       _cachedNodesData = widget.data;
     }
-    final result = markdownGenerator.buildFromNodes(
+    final spans = markdownGenerator.visitNodes(
       nodes,
       onTocList: (tocList) {
         _tocController?.setTocList(tocList);
       },
       config: widget.config,
     );
-    _widgets.addAll(result);
+    _spans.addAll(spans);
+    _widgetCache.clear();
   }
 
   ///this method will be called when [updateState] or [dispose]
   void clearState() {
     indexTreeSet.clear();
-    _widgets.clear();
+    _spans.clear();
+    _widgetCache.clear();
   }
 
   @override
@@ -165,16 +174,24 @@ class MarkdownWidgetState extends State<MarkdownWidget> {
         controller: controller,
         itemBuilder: (ctx, index) => wrapByAutoScroll(
             index,
-            wrapByVisibilityDetector(index, _widgets[index]),
+            wrapByVisibilityDetector(index, _buildBlock(index)),
             controller,
             _keyPrefix),
-        itemCount: _widgets.length,
+        itemCount: _spans.length,
         padding: widget.padding,
       ),
     );
     return widget.selectable
         ? SelectionArea(child: markdownWidget)
         : markdownWidget;
+  }
+
+  ///Lazily build (and cache) the block widget at [index]. Blocks are only
+  ///materialised when the [ListView] asks for them (i.e. when visible),
+  ///avoiding building the whole document up front.
+  Widget _buildBlock(int index) {
+    return _widgetCache[index] ??=
+        markdownGenerator.buildSpanWidget(_spans[index]);
   }
 
   ///wrap widget by [VisibilityDetector] that can know if [child] is visible
