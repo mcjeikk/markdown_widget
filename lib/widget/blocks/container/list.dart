@@ -98,7 +98,8 @@ class ListNode extends ElementNode {
         richTextBuilder: visitor.richTextBuilder,
       );
     } else {
-      marker = config.li.marker?.call(isOrdered, depth, index) ??
+      marker = config.li.marker?.call(
+              isOrdered, depth, index, parentStyle?.color) ??
           getDefaultMarker(isOrdered, depth, parentStyle?.color, index,
               parentStyleHeight / 2, config);
     }
@@ -166,7 +167,10 @@ class ListConfig implements ContainerConfig {
 }
 
 ///the function to get marker widget
-typedef ListMarker = Widget? Function(bool isOrdered, int depth, int index);
+/// [color] is the inherited text color at the list item (e.g. the blockquote
+/// text color when the list is nested in one) — null at the document root.
+typedef ListMarker = Widget? Function(
+    bool isOrdered, int depth, int index, Color? color);
 
 ///the default marker widget for unordered list
 class _UlMarker extends StatelessWidget {
